@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Expiry Checker</title>
+<title>Product Expiry Checker</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
 body{font-family:Arial;background:#f4f6f8;margin:0;padding:16px;text-align:center}
@@ -31,11 +31,138 @@ function findDate(text) {
   const found = [];
   const add = (y, m, d) => {
     y = +y < 100 ? 2000 + +y : +y;
-    if (m < 1 || m > 12 || y < 2020 || y > 2050) return;
+    if (m < 1 || m > 12 || y < 2015 || y > 2050) return;
     d = d || new Date(y, m, 0).getDate();          // month/year only -> last day of month
     found.push(y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0'));
   };
-  let t = text.replace(/\n/g, ' '), m;
+  let t = text.replace(/\n/g, ' ').replace(/(?<=\d)[Oo]|[Oo](?=\d)/g, '0').replace(/(?<=\d)[Il|]|[Il|](?=\d)/g, '1'), m;
+  const use = (re, fn) => { while ((m = re.exec(t))) fn(m); t = t.replace(re, ' '); };
+  use(/(?<!\d)(\d{4})[\/\-.](\d{1,2})(?:[\/\-.](\d{1,2}))?(?!\d)/g, m => add(m[1], +m[2], +m[3]));
+  use(/(?<!\d)(\d{1,2})[\/\-. ](\d{1,2})[\/\-. ](\d{4}|\d{2})(?!\d)/g, m => add(m[3], +m[2], +m[1]));
+  use(/(?<!\d)(\d{1,2})?\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[\s\/\-.,]*(\d{4}|\d{2})(?!\d)/gi, m => add(m[3], M[m[2].toLowerCase()], +m[1]));
+  use(/(?<!\d)(\d{1,2})[\/\-](\d{4}|\d{2})(?!\d)/g, m => add(m[2], +m[1], 0));
+  return found.sort().pop() || '';                   // latest date = expiry
+}
+
+// time left, in months and days
+function left(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const now = new Date(), a = new Date(now.getFullYear(), now.getMonth(), now.getDate()), b = new Date(y, m - 1, d);
+  const expired = b < a, [s, e] = expired ? [b, a] : [a, b];
+  let mo = (e.getFullYear() - s.getFullYear()) * 12 + e.getMonth() - s.getMonth();
+  let x = new Date(s.getFullYear(), s.getMonth() + mo, s.getDate());
+  if (x > e) { mo--; x = new Date(s.getFullYear(), s.getMonth() + mo, s.getDate()); }
+  const days = Math.round((e - x) / 86400000);
+  const text = (mo ? mo + ' month' + (mo > 1 ? 's ' : ' ') : '') + days + ' day' + (days === 1 ? '' : 's');
+  return { text: expired ? 'Expired ' + text + ' ago' : text + ' left', color: expired ? 'red' : mo < 9 ? 'amber' : 'green' };
+}
+
+// prepare the photo for reading: enlarge it and improve contrast (mode 0 = plain, 1 = contrast, 2 = black and white)
+function prepare(url, mode) {
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(3, 2000 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'), x = c.getContext('2d');
+      c.width = img.width * k; c.height = img.height * k;
+      x.drawImage(img, 0, 0, c.width, c.height);
+      if (mode) {
+        const d = x.getImageData(0, 0, c.width, c.height), p = d.data;
+        for (let i = 0; i < p.length; i += 4) {
+          let g = p[i] * 0.3 + p[i + 1] * 0.59 + p[i + 2] * 0.11;
+          g = mode === 1 ? (g - 128) * 1.8 + 128 : (g > 125 ? 255 : 0);
+          p[i] = p[i + 1] = p[i + 2] = Math.max(0, Math.min(255, g));
+        }
+        x.putImageData(d, 0, 0);
+      }
+      res(c);
+    };
+    img.src = url;
+  });
+}
+
+// 1) Claude reads the photo when this page is opened inside Claude (most accurate)
+let sample;
+async function getSample() {
+  if (sample === undefined) {
+    try { sample = window.claude ? await claude.use('sample') : null; } catch (e) { sample = null; }
+  }
+  return sample;
+}
+async function readWithClaude(s, url) {
+  const canvas = await prepare(url, 0);
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.85));
+  const prompt = 'This is a photo of a medical product package. Find the EXPIRY date (EXP, Expiry, Use by, Best before, or hourglass symbol). Ignore manufacturing (MFG) dates and batch numbers. Return ONLY JSON: {"expiry":"YYYY-MM-DD" or null}. If only month and year are printed, use the last day of that month. Do not guess.';
+  const r = await s.json(prompt, { images: [blob], modelTier: 'default' });
+  return /^\d{4}-\d{2}-\d{2}$/.test(r.expiry || '') ? r.expiry : '';
+}
+
+// 2) Free reader that works everywhere (used when the page is opened as a normal file)
+let worker;
+async function readWithOCR(url) {
+  if (!worker) worker = await Tesseract.createWorker('eng');
+  for (const mode of [1, 0, 2]) {
+    for (const psm of ['6', '11']) {
+      try {
+        await worker.setParameters({ tessedit_pageseg_mode: psm });
+        const r = await worker.recognize(await prepare(url, mode));
+        const date = findDate(r.data.text);
+        if (date) return date;
+      } catch (err) {}
+    }
+  }
+  return '';
+}
+
+async function readPhoto(url) {
+  const s = await getSample();
+  if (s) { try { return await readWithClaude(s, url); } catch (e) { /* fall through to the free reader */ } }
+  return readWithOCR(url);
+}
+
+document.getElementById('f').onchange = async e => {
+  for (const file of e.target.files) {
+    document.getElementById('msg').textContent = 'Reading ' + file.name + '... please wait';
+    const url = URL.createObjectURL(file);
+    const date = await readPhoto(url);
+    const r = date ? left(date) : { text: 'Date not found', color: '' };
+    document.getElementById('grid').insertAdjacentHTML('beforeend',
+      '<div class="c"><img src="' + url + '"><b class="' + r.color + '">' + r.text + '</b></div>');
+  }
+  document.getElementById('msg').textContent = '';
+};
+</script>
+<style>
+body{font-family:Arial;background:#f4f6f8;margin:0;padding:16px;text-align:center}
+h2{font-size:1.8rem}
+.btn{display:block;width:100%;max-width:340px;margin:20px auto;padding:22px 16px;background:#0f766e;color:#fff;font-size:1.4rem;font-weight:bold;border-radius:14px;cursor:pointer}
+#f{display:none}
+#grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,220px));justify-content:center;gap:12px;margin-top:12px}
+.c{background:#fff;border-radius:10px;padding:8px;text-align:center}
+.c img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px}
+.red{color:#b42318}.amber{color:#d97706}.green{color:#16a34a}
+</style>
+</head>
+<body>
+<h2>Expiry Checker</h2>
+<label class="btn" for="f">Choose Photos</label>
+<input type="file" id="f" accept="image/*" multiple>
+<p id="msg"></p>
+<div id="grid"></div>
+
+<script>
+const M = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+
+// find the expiry date in the text read from the photo
+function findDate(text) {
+  const found = [];
+  const add = (y, m, d) => {
+    y = +y < 100 ? 2000 + +y : +y;
+    if (m < 1 || m > 12 || y < 2015 || y > 2050) return;
+    d = d || new Date(y, m, 0).getDate();          // month/year only -> last day of month
+    found.push(y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0'));
+  };
+  let t = text.replace(/\n/g, ' ').replace(/(?<=\d)[Oo]|[Oo](?=\d)/g, '0').replace(/(?<=\d)[Il|]|[Il|](?=\d)/g, '1'), m;
   const use = (re, fn) => { while ((m = re.exec(t))) fn(m); t = t.replace(re, ' '); };
   use(/(?<!\d)(\d{4})[\/\-.](\d{1,2})(?:[\/\-.](\d{1,2}))?(?!\d)/g, m => add(m[1], +m[2], +m[3]));
   use(/(?<!\d)(\d{1,2})[\/\-. ](\d{1,2})[\/\-. ](\d{4}|\d{2})(?!\d)/g, m => add(m[3], +m[2], +m[1]));
