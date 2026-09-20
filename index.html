@@ -2,195 +2,110 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Medical Product Expiry Tracker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Product Expiry Checker</title>
 <style>
-:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
---bg:#f6f8fa;--card:#fff;--text:#1a2330;--muted:#66717f;--line:#dde3ea;--accent:#0f766e;--red:#b42318;--amber:#b45309;--green:#166534;--redbg:#fee4e2;--ambbg:#fef3c7;--grnbg:#dcfce7}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1418;--card:#182028;--text:#e6ebf0;--muted:#93a0ae;--line:#2a3541;--accent:#2dd4bf;--red:#fda29b;--amber:#fcd34d;--green:#86efac;--redbg:#4a1d1a;--ambbg:#3d2f0a;--grnbg:#12351f}}
-:root[data-theme="dark"]{--bg:#0f1418;--card:#182028;--text:#e6ebf0;--muted:#93a0ae;--line:#2a3541;--accent:#2dd4bf;--red:#fda29b;--amber:#fcd34d;--green:#86efac;--redbg:#4a1d1a;--ambbg:#3d2f0a;--grnbg:#12351f}
-html{scroll-padding-top:env(safe-area-inset-top,0px)}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.45}
-main{max-width:900px;margin:0 auto;padding:20px 16px 40px}
-h1{font-size:1.4rem;margin:0 0 4px}
-p.sub{color:var(--muted);margin:0 0 16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
-.drop{border:2px dashed var(--line);border-radius:10px;padding:22px;text-align:center;cursor:pointer}
-.drop:hover{border-color:var(--accent)}
-button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:8px;padding:7px 12px;cursor:pointer}
-button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
-button:disabled{opacity:.5;cursor:default}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-input[type=text],input[type=date]{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);min-width:0}
-.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
-.stat{padding:10px;border-radius:10px;text-align:center}
-.stat b{display:block;font-size:1.5rem}
-.s-exp{background:var(--redbg);color:var(--red)}.s-soon{background:var(--ambbg);color:var(--amber)}.s-ok{background:var(--grnbg);color:var(--green)}.s-none{background:var(--bg);color:var(--muted);border:1px solid var(--line)}
-.scroll{overflow-x:auto}
-table{width:100%;border-collapse:collapse;min-width:640px}
-th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
-th{font-size:.8rem;color:var(--muted);text-transform:uppercase}
-td img{width:44px;height:44px;object-fit:cover;border-radius:6px;display:block}
-.badge{padding:3px 8px;border-radius:999px;font-size:.8rem;font-weight:600;white-space:nowrap}
-.note{color:var(--muted);font-size:.85rem}
-#msg{color:var(--muted);margin-top:8px;min-height:1.2em}
+body{margin:0;background:#f4f6f8;font-family:Arial,sans-serif;color:#222}
+main{max-width:700px;margin:0 auto;padding:16px}
+h1{font-size:1.4rem}
+.box{background:#fff;padding:14px;border-radius:10px;display:grid;gap:10px;margin-bottom:16px}
+input,button{font:inherit;padding:8px;border:1px solid #ccc;border-radius:6px}
+button{background:#0f766e;color:#fff;border:0;cursor:pointer}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
+#grid img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;cursor:pointer;border:3px solid #ccc}
+#grid img.red{border-color:#b42318}
+#grid img.amber{border-color:#d97706}
+#grid img.green{border-color:#16a34a}
+#pop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px}
+#pop .card{background:#fff;border-radius:12px;padding:16px;max-width:340px;width:100%;text-align:center}
+#pop img{width:100%;max-height:260px;object-fit:contain;border-radius:8px}
+#pop .days{font-size:1.6rem;font-weight:bold;margin:10px 0 4px}
+#pop .red{color:#b42318}#pop .amber{color:#b45309}#pop .green{color:#166534}
+#pop .del{background:#b42318;margin-left:6px}
 </style>
 </head>
 <body>
 <main>
-<h1>Medical Product Expiry Tracker</h1>
-<p class="sub">Upload photos of product labels. Claude reads the expiry date and the page counts the days remaining.</p>
-
-<div class="card">
-  <label class="drop" id="drop">
-    <input id="file" type="file" accept="image/*" multiple hidden>
-    <strong>Tap to choose photos</strong> or drop them here<br>
-    <span class="note">Photo the side of the box where the expiry date is printed</span>
-  </label>
-  <div class="row" style="margin-top:10px">
-    <label>Warn when under <input id="warn" type="number" value="90" min="1" style="width:70px;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)"> days</label>
-    <button id="add">Add manually</button>
-    <button id="csv">Download CSV</button>
-    <button id="clear">Clear all</button>
+  <h1>Product Expiry Checker</h1>
+  <div class="box">
+    <input id="name" type="text" placeholder="Product name (optional)">
+    <label>Expiry date <input id="date" type="date"></label>
+    <label>Photo <input id="photo" type="file" accept="image/*"></label>
+    <button id="add">Add product</button>
   </div>
-  <div id="msg"></div>
-</div>
-
-<div class="card summary" id="summary"></div>
-
-<div class="card scroll">
-  <table>
-    <thead><tr><th>Photo</th><th>Product</th><th>Expiry date</th><th>Days left</th><th>Status</th><th></th></tr></thead>
-    <tbody id="body"></tbody>
-  </table>
-  <p class="note" id="empty">No products yet. Upload a photo to begin.</p>
-</div>
-<p class="note">Always double-check dates Claude reads, especially if the photo is blurry. You can edit any date in the table.</p>
+  <p>Click a photo to see how many days are left.</p>
+  <div id="grid"></div>
 </main>
 
+<div id="pop"><div class="card">
+  <img id="pimg" alt="">
+  <div id="pname"></div>
+  <div class="days" id="pdays"></div>
+  <div id="pdate"></div><br>
+  <button id="close">Close</button><button class="del" id="del">Delete</button>
+</div></div>
+
 <script>
-let items = [];
-let sample = null;
+let items = JSON.parse(localStorage.getItem('items') || '[]');
+let current = -1;
 const $ = id => document.getElementById(id);
-const KEY = 'expiry-items-v1';
 
-try { const s = localStorage.getItem(KEY); if (s) items = JSON.parse(s); } catch (e) {}
-function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(items.map(({thumb, ...r}) => ({...r, thumb})))); } catch (e) {}
-}
-
-(async () => {
-  try { sample = window.claude ? await claude.use('sample') : null; } catch (e) { sample = null; }
-  if (!sample) $('msg').textContent = 'Reading photos is unavailable here. You can still add products and dates manually.';
-  render();
-})();
-
-function today() { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
 function daysLeft(iso) {
-  if (!iso) return null;
   const [y, m, d] = iso.split('-').map(Number);
-  return Math.round((new Date(y, m - 1, d) - today()) / 86400000);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((new Date(y, m - 1, d) - today) / 86400000);
 }
-function status(n) {
-  const w = +$('warn').value || 90;
-  if (n === null) return ['Check date', 's-none'];
-  if (n < 0) return ['Expired', 's-exp'];
-  if (n <= w) return ['Expiring soon', 's-soon'];
-  return ['OK', 's-ok'];
-}
+function level(n) { return n < 0 ? 'red' : n <= 90 ? 'amber' : 'green'; }
 
-function makeThumb(file) {
-  return new Promise(res => {
-    const img = new Image(), url = URL.createObjectURL(file);
-    img.onload = () => {
-      const c = document.createElement('canvas'), s = 88 / Math.min(img.width, img.height);
-      c.width = 88; c.height = 88;
-      const ctx = c.getContext('2d');
-      ctx.drawImage(img, (88 - img.width * s) / 2, (88 - img.height * s) / 2, img.width * s, img.height * s);
-      URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', .6));
-    };
-    img.onerror = () => res('');
-    img.src = url;
-  });
-}
-
-async function readPhoto(file) {
-  const prompt = `This is a photo of a medical product's packaging or label. Today's date is ${new Date().toISOString().slice(0,10)}.
-Find the product name and the EXPIRY date (EXP, Expiry, Use by, or the hourglass symbol). Ignore manufacturing dates (MFG).
-Return ONLY JSON: {"name": string, "expiry": "YYYY-MM-DD" or null}.
-If only month and year are shown, use the last day of that month. If the expiry date is not readable, use null.`;
-  return sample.json(prompt, { images: [file], modelTier: 'quick' });
-}
-
-async function handleFiles(files) {
-  if (!sample) { $('msg').textContent = 'Photo reading is unavailable. Use "Add manually".'; return; }
-  const list = [...files];
-  for (let i = 0; i < list.length; i++) {
-    $('msg').textContent = `Reading photo ${i + 1} of ${list.length}...`;
-    const thumb = await makeThumb(list[i]);
-    try {
-      const r = await readPhoto(list[i]);
-      items.push({ id: Date.now() + i, name: r.name || 'Unknown product', expiry: /^\d{4}-\d{2}-\d{2}$/.test(r.expiry || '') ? r.expiry : '', thumb });
-    } catch (e) {
-      items.push({ id: Date.now() + i, name: 'Unread: ' + list[i].name, expiry: '', thumb });
-      if (e && e.code === 'not_granted') { $('msg').textContent = 'Permission to read photos was declined.'; break; }
-    }
-    save(); render();
-  }
-  if ($('msg').textContent.startsWith('Reading')) $('msg').textContent = 'Done. Please verify the dates below.';
+function shrink(file, cb) {
+  const img = new Image();
+  img.onload = () => {
+    const s = Math.min(1, 500 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = img.width * s; c.height = img.height * s;
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    cb(c.toDataURL('image/jpeg', 0.7));
+  };
+  img.src = URL.createObjectURL(file);
 }
 
 function render() {
-  const sorted = [...items].sort((a, b) => (a.expiry || '9999').localeCompare(b.expiry || '9999'));
-  const counts = { exp: 0, soon: 0, ok: 0, none: 0 };
-  const body = $('body'); body.innerHTML = '';
-  sorted.forEach(it => {
-    const n = daysLeft(it.expiry), [label, cls] = status(n);
-    counts[cls.slice(2)]++;
-    const tr = document.createElement('tr');
-    const td = () => tr.appendChild(document.createElement('td'));
-    const t1 = td();
-    if (it.thumb) { const im = document.createElement('img'); im.src = it.thumb; im.alt = ''; t1.appendChild(im); }
-    const name = document.createElement('input'); name.type = 'text'; name.value = it.name;
-    name.onchange = () => { it.name = name.value; save(); };
-    td().appendChild(name);
-    const dt = document.createElement('input'); dt.type = 'date'; dt.value = it.expiry;
-    dt.onchange = () => { it.expiry = dt.value; save(); render(); };
-    td().appendChild(dt);
-    td().textContent = n === null ? '-' : (n < 0 ? `${-n} days ago` : `${n} days`);
-    const b = document.createElement('span'); b.className = 'badge ' + cls; b.textContent = label;
-    td().appendChild(b);
-    const del = document.createElement('button'); del.textContent = 'Delete';
-    del.onclick = () => { items = items.filter(x => x.id !== it.id); save(); render(); };
-    td().appendChild(del);
-    body.appendChild(tr);
+  const g = $('grid'); g.innerHTML = '';
+  items.forEach((it, i) => {
+    const im = document.createElement('img');
+    im.src = it.photo; im.className = level(daysLeft(it.date));
+    im.onclick = () => show(i);
+    g.appendChild(im);
   });
-  $('empty').hidden = items.length > 0;
-  $('summary').innerHTML = [['Expired', counts.exp, 's-exp'], ['Expiring soon', counts.soon, 's-soon'], ['OK', counts.ok, 's-ok'], ['Check date', counts.none, 's-none']]
-    .map(([l, v, c]) => `<div class="stat ${c}"><b>${v}</b>${l}</div>`).join('');
 }
 
-$('file').onchange = e => { handleFiles(e.target.files); e.target.value = ''; };
-$('drop').ondragover = e => e.preventDefault();
-$('drop').ondrop = e => { e.preventDefault(); handleFiles([...e.dataTransfer.files].filter(f => f.type.startsWith('image/'))); };
-$('warn').oninput = render;
-$('add').onclick = () => { items.push({ id: Date.now(), name: 'New product', expiry: '', thumb: '' }); save(); render(); };
-$('clear').onclick = () => { if (confirm('Delete all products?')) { items = []; save(); render(); } };
-$('csv').onclick = async () => {
-  const rows = [['Product', 'Expiry', 'Days left', 'Status']];
-  [...items].sort((a, b) => (a.expiry || '9999').localeCompare(b.expiry || '9999')).forEach(i => {
-    const n = daysLeft(i.expiry); rows.push([i.name, i.expiry, n === null ? '' : n, status(n)[0]]);
+function show(i) {
+  current = i;
+  const it = items[i], n = daysLeft(it.date);
+  $('pimg').src = it.photo;
+  $('pname').textContent = it.name;
+  $('pdays').className = 'days ' + level(n);
+  $('pdays').textContent = n < 0 ? 'Expired ' + (-n) + ' days ago' : n + ' days left';
+  $('pdate').textContent = 'Expiry date: ' + it.date;
+  $('pop').style.display = 'flex';
+}
+
+function save() { localStorage.setItem('items', JSON.stringify(items)); render(); }
+
+$('add').onclick = () => {
+  const file = $('photo').files[0], date = $('date').value;
+  if (!file || !date) { alert('Choose a photo and an expiry date'); return; }
+  const name = $('name').value.trim();
+  shrink(file, photo => {
+    items.push({ name, date, photo });
+    $('name').value = ''; $('date').value = ''; $('photo').value = '';
+    save();
   });
-  const data = rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
-  try {
-    const dl = window.claude ? await claude.use('downloads') : null;
-    if (dl) { await dl.save({ filename: 'expiry-report.csv', data }); return; }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([data], { type: 'text/csv' }));
-    a.download = 'expiry-report.csv'; a.click();
-  } catch (e) { $('msg').textContent = 'Download was cancelled.'; }
 };
+$('close').onclick = () => $('pop').style.display = 'none';
+$('del').onclick = () => { items.splice(current, 1); $('pop').style.display = 'none'; save(); };
+$('pop').onclick = e => { if (e.target.id === 'pop') $('pop').style.display = 'none'; };
 render();
 </script>
 </body>
