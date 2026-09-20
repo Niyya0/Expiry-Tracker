@@ -54,7 +54,7 @@ function left(iso) {
   if (x > e) { mo--; x = new Date(s.getFullYear(), s.getMonth() + mo, s.getDate()); }
   const days = Math.round((e - x) / 86400000);
   const text = (mo ? mo + ' month' + (mo > 1 ? 's ' : ' ') : '') + days + ' day' + (days === 1 ? '' : 's');
-  return { text: expired ? 'Expired ' + text + ' ago' : text + ' left', color: expired ? 'red' : (e - s) / 86400000 <= 90 ? 'amber' : 'green' };
+  return { text: expired ? 'Expired ' + text + ' ago' : text + ' left', color: expired ? 'red' : mo < 9 ? 'amber' : 'green' };
 }
 
 document.getElementById('f').onchange = async e => {
@@ -65,7 +65,7 @@ document.getElementById('f').onchange = async e => {
     try { date = findDate((await Tesseract.recognize(url, 'eng')).data.text); } catch (err) {}
     const r = date ? left(date) : { text: 'Date not found', color: '' };
     document.getElementById('grid').insertAdjacentHTML('beforeend',
-      '<div class="c"><img src="' + url + '"><b class="' + r.color + '">' + r.text + '</b><br><small>' + date + '</small></div>');
+      '<div class="c"><img src="' + url + '"><b class="' + r.color + '">' + r.text + '</b></div>');
   }
   document.getElementById('msg').textContent = '';
 };
