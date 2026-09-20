@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Product Expiry Checker</title>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#f4f6f8;font-family:Arial,sans-serif;color:#222}
@@ -32,9 +31,10 @@ button{background:#0f766e;color:#fff;border:0;cursor:pointer}
 <body>
 <main>
   <h1>Product Expiry Checker</h1>
+  <input id="key" type="password" placeholder="Paste your Anthropic API key (saved on this device only)" style="width:100%;padding:8px;margin-bottom:10px;border:1px solid #ccc;border-radius:6px">
   <label class="drop">
     <input id="photo" type="file" accept="image/*" multiple hidden>
-    <b>Tap to upload product photos</b><br>The expiry date is read from the photo
+    <b>Tap to upload product photos</b><br>Claude reads the expiry date from the photo
   </label>
   <div id="msg"></div>
   <div id="grid"></div>
@@ -51,47 +51,8 @@ button{background:#0f766e;color:#fff;border:0;cursor:pointer}
 <script>
 let items = [], current = -1;
 const $ = id => document.getElementById(id);
-try { items = JSON.parse(localStorage.getItem('items3') || '[]'); } catch (e) {}
-function save() { try { localStorage.setItem('items3', JSON.stringify(items)); } catch (e) {} render(); }
-
-/* ---------- date reading from OCR text ---------- */
-const MON = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,sept:9,oct:10,nov:11,dec:12};
-const pad = n => String(n).padStart(2, '0');
-const yr = y => { y = +y; return y < 100 ? 2000 + y : y; };
-function lastDay(y, m) { return new Date(y, m, 0).getDate(); }
-
-function findDates(text) {
-  let t = text.replace(/[Oo](?=\d)|(?<=\d)[Oo]/g, '0').replace(/[|Il](?=\d{2})/g, '1');
-  let out = []; let m;
-  const add = (y, mo, d) => { y = yr(y); if (mo >= 1 && mo <= 12 && y >= 2020 && y <= 2050) { d = d || lastDay(y, mo); if (d >= 1 && d <= 31) out.push(y + '-' + pad(mo) + '-' + pad(d)); } };
-  let r = /(?<!\d)(\d{1,2})\s*[\/\-\. ]\s*(\d{1,2})\s*[\/\-\. ]\s*(\d{4}|\d{2})\b/g;
-  while ((m = r.exec(t))) { let a = +m[1], b = +m[2]; if (b > 12 && a <= 12) [a, b] = [b, a]; add(m[3], b, a); }
-  t = t.replace(r, ' ');
-  r = /\b(\d{4})\s*[\/\-\.]\s*(\d{1,2})(?:\s*[\/\-\.]\s*(\d{1,2}))?\b/g;
-  while ((m = r.exec(t))) add(m[1], +m[2], m[3] ? +m[3] : 0);
-  t = t.replace(r, ' ');
-  r = /\b(\d{1,2})?\s*[\/\-\. ]?\s*(jan|feb|mar|apr|may|jun|jul|aug|sept|sep|oct|nov|dec)[a-z]*[\s\/\-\.,']*(\d{4}|\d{2})\b/gi;
-  while ((m = r.exec(t))) add(m[3], MON[m[2].toLowerCase()], m[1] ? +m[1] : 0);
-  t = t.replace(r, ' ');
-  r = /\b(\d{1,2})\s*[\/\-\.]\s*(\d{4})\b/g;
-  while ((m = r.exec(t))) add(m[2], +m[1], 0);
-  r = /(?<!\d)(\d{1,2})\s*[\/\-]\s*(\d{2})(?!\d)/g;
-  while ((m = r.exec(t))) add(m[2], +m[1], 0);
-  return out;
-}
-function pickExpiry(text) {
-  // 1) dates on/after an EXP-type keyword
-  const lines = text.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    if (/exp|use\s*by|best\s*before|\bbb\b|\bbbe\b/i.test(lines[i])) {
-      const d = findDates(lines[i] + ' ' + (lines[i + 1] || ''));
-      if (d.length) return d.sort().pop();
-    }
-  }
-  // 2) otherwise the latest date found (expiry is after manufacture)
-  const all = findDates(text);
-  return all.length ? all.sort().pop() : '';
-}
+try { items = JSON.parse(localStorage.getItem('items4') || '[]'); } catch (e) {}
+function save() { try { localStorage.setItem('items4', JSON.stringify(items)); } catch (e) {} render(); }
 
 /* ---------- remaining time ---------- */
 function today() { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
@@ -127,81 +88,63 @@ function thumb(file) {
   });
 }
 
-function prep(file, mode) {
+function toBase64(file) {
   return new Promise(res => {
     const img = new Image();
     img.onload = () => {
-      const long = Math.max(img.width, img.height);
-      const s = Math.min(3, Math.max(0.5, 2200 / long));
-      const c = document.createElement('canvas');
-      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
-      const x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height);
-      if (mode !== 'plain') {
-        const d = x.getImageData(0, 0, c.width, c.height), p = d.data, g = new Uint8Array(c.width * c.height), h = new Array(256).fill(0);
-        for (let i = 0, j = 0; i < p.length; i += 4, j++) { g[j] = (p[i] * 0.3 + p[i + 1] * 0.59 + p[i + 2] * 0.11) | 0; h[g[j]]++; }
-        let lo = 0, hi = 255, tot = g.length, a = 0;
-        while (lo < 254 && (a += h[lo]) < tot * 0.01) lo++;
-        a = 0; while (hi > 1 && (a += h[hi]) < tot * 0.01) hi--;
-        // Otsu threshold
-        let sum = 0; for (let i = 0; i < 256; i++) sum += i * h[i];
-        let wB = 0, sB = 0, best = 0, th = 128;
-        for (let i = 0; i < 256; i++) { wB += h[i]; if (!wB) continue; const wF = tot - wB; if (!wF) break; sB += i * h[i]; const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) * (mB - mF); if (v > best) { best = v; th = i; } }
-        for (let i = 0, j = 0; i < p.length; i += 4, j++) {
-          let v;
-          if (mode === 'bw') v = g[j] > th ? 255 : 0;
-          else if (mode === 'inv') v = g[j] > th ? 0 : 255;
-          else v = Math.max(0, Math.min(255, (g[j] - lo) * 255 / Math.max(1, hi - lo)));
-          p[i] = p[i + 1] = p[i + 2] = v;
-        }
-        x.putImageData(d, 0, 0);
-      }
-      URL.revokeObjectURL(img.src); res(c);
+      const k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src);
+      res(c.toDataURL('image/jpeg', 0.85).split(',')[1]);
     };
     img.onerror = () => res(null);
     img.src = URL.createObjectURL(file);
   });
 }
 
-let worker = null;
-async function getWorker() {
-  if (!worker) worker = await Tesseract.createWorker('eng');
-  return worker;
+async function readExpiry(file) {
+  const key = $('key').value.trim();
+  const b64 = await toBase64(file); if (!b64) return '';
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-5',
+      max_tokens: 200,
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+        { type: 'text', text: 'This is a photo of a medical product package. Find the EXPIRY date (EXP, Expiry, Use by, Best before, or the hourglass symbol). Ignore manufacturing (MFG) dates and batch numbers. Reply with ONLY JSON like {"expiry":"YYYY-MM-DD"}. If only month and year are printed, use the last day of that month. If there is no readable expiry date, reply {"expiry":null}. Do not guess.' }
+      ] }]
+    })
+  });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e.error && e.error.message) || ('Error ' + r.status)); }
+  const data = await r.json();
+  const text = (data.content || []).map(c => c.text || '').join('');
+  const m = text.match(/\d{4}-\d{2}-\d{2}/);
+  return m ? m[0] : '';
 }
 
-async function readExpiry(file) {
-  const w = await getWorker();
-  const passes = [['contrast', '6'], ['contrast', '11'], ['bw', '11'], ['inv', '11'], ['plain', '3'], ['bw', '6']];
-  let fallback = '';
-  for (const [mode, psm] of passes) {
-    const c = await prep(file, mode); if (!c) continue;
-    await w.setParameters({ tessedit_pageseg_mode: psm });
-    const r = await w.recognize(c);
-    const text = r.data.text;
-    // strong result: a date on an EXP/USE BY line
-    const lines = text.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (/exp|use\s*by|best\s*before|\bbb\b|\bbbe\b/i.test(lines[i])) {
-        const d = findDates(lines[i] + ' ' + (lines[i + 1] || ''));
-        if (d.length) return d.sort().pop();
-      }
-    }
-    const any = findDates(text);
-    if (any.length) { const m = any.sort().pop(); if (m > fallback) fallback = m; }
-  }
-  return fallback;
-}
+$('key').value = localStorage.getItem('apikey') || '';
+$('key').onchange = () => { try { localStorage.setItem('apikey', $('key').value.trim()); } catch (e) {} };
 
 $('photo').onchange = async e => {
   const files = [...e.target.files]; e.target.value = '';
+  if (!$('key').value.trim()) { $('msg').textContent = 'Please paste your Anthropic API key first (top of the page).'; return; }
   for (let i = 0; i < files.length; i++) {
-    $('msg').textContent = 'Reading photo ' + (i + 1) + ' of ' + files.length + '... please wait (about 10-30 seconds each)';
+    $('msg').textContent = 'Reading photo ' + (i + 1) + ' of ' + files.length + '...';
     const photo = await thumb(files[i]);
     let date = '';
     try { date = await readExpiry(files[i]); }
-    catch (err) { $('msg').textContent = 'Could not load the reader. Check your internet connection.'; console.error(err); }
+    catch (err) { $('msg').textContent = 'Error: ' + err.message; console.error(err); return; }
     items.push({ date, photo }); save();
   }
-  if ($('msg').textContent.startsWith('Reading')) $('msg').textContent = 'Done. Click a photo to see the remaining time.';
+  $('msg').textContent = 'Done. The remaining time is shown under each photo.';
 };
 
 function render() {
