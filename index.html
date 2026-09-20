@@ -40,9 +40,7 @@ button{background:#0f766e;color:#fff;border:0;cursor:pointer}
   <img id="pimg" alt="">
   <div class="big" id="prem"></div>
   <div id="pdate"></div>
-  <div id="fix" style="display:none;margin-top:8px">
-    <input type="date" id="fixdate"> <button id="fixbtn">Set</button>
-  </div><br>
+  <br>
   <button id="close">Close</button><button class="del" id="del">Delete</button>
 </div></div>
 
@@ -125,18 +123,78 @@ function thumb(file) {
   });
 }
 
+function prep(file, mode) {
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const long = Math.max(img.width, img.height);
+      const s = Math.min(3, Math.max(0.5, 2200 / long));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+      const x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height);
+      if (mode !== 'plain') {
+        const d = x.getImageData(0, 0, c.width, c.height), p = d.data, g = new Uint8Array(c.width * c.height), h = new Array(256).fill(0);
+        for (let i = 0, j = 0; i < p.length; i += 4, j++) { g[j] = (p[i] * 0.3 + p[i + 1] * 0.59 + p[i + 2] * 0.11) | 0; h[g[j]]++; }
+        let lo = 0, hi = 255, tot = g.length, a = 0;
+        while (lo < 254 && (a += h[lo]) < tot * 0.01) lo++;
+        a = 0; while (hi > 1 && (a += h[hi]) < tot * 0.01) hi--;
+        // Otsu threshold
+        let sum = 0; for (let i = 0; i < 256; i++) sum += i * h[i];
+        let wB = 0, sB = 0, best = 0, th = 128;
+        for (let i = 0; i < 256; i++) { wB += h[i]; if (!wB) continue; const wF = tot - wB; if (!wF) break; sB += i * h[i]; const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) * (mB - mF); if (v > best) { best = v; th = i; } }
+        for (let i = 0, j = 0; i < p.length; i += 4, j++) {
+          let v;
+          if (mode === 'bw') v = g[j] > th ? 255 : 0;
+          else if (mode === 'inv') v = g[j] > th ? 0 : 255;
+          else v = Math.max(0, Math.min(255, (g[j] - lo) * 255 / Math.max(1, hi - lo)));
+          p[i] = p[i + 1] = p[i + 2] = v;
+        }
+        x.putImageData(d, 0, 0);
+      }
+      URL.revokeObjectURL(img.src); res(c);
+    };
+    img.onerror = () => res(null);
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+let worker = null;
+async function getWorker() {
+  if (!worker) worker = await Tesseract.createWorker('eng');
+  return worker;
+}
+
+async function readExpiry(file) {
+  const w = await getWorker();
+  const passes = [['contrast', '6'], ['contrast', '11'], ['bw', '11'], ['inv', '11'], ['plain', '3'], ['bw', '6']];
+  let fallback = '';
+  for (const [mode, psm] of passes) {
+    const c = await prep(file, mode); if (!c) continue;
+    await w.setParameters({ tessedit_pageseg_mode: psm });
+    const r = await w.recognize(c);
+    const text = r.data.text;
+    // strong result: a date on an EXP/USE BY line
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (/exp|use\s*by|best\s*before|\bbb\b|\bbbe\b/i.test(lines[i])) {
+        const d = findDates(lines[i] + ' ' + (lines[i + 1] || ''));
+        if (d.length) return d.sort().pop();
+      }
+    }
+    const any = findDates(text);
+    if (any.length) { const m = any.sort().pop(); if (m > fallback) fallback = m; }
+  }
+  return fallback;
+}
+
 $('photo').onchange = async e => {
   const files = [...e.target.files]; e.target.value = '';
   for (let i = 0; i < files.length; i++) {
-    $('msg').textContent = 'Reading photo ' + (i + 1) + ' of ' + files.length + '... (first time may take a little while)';
+    $('msg').textContent = 'Reading photo ' + (i + 1) + ' of ' + files.length + '... please wait (about 10-30 seconds each)';
     const photo = await thumb(files[i]);
     let date = '';
-    try {
-      const r = await Tesseract.recognize(files[i], 'eng');
-      date = pickExpiry(r.data.text);
-    } catch (err) {
-      $('msg').textContent = 'Could not load the reader. Check your internet connection.';
-    }
+    try { date = await readExpiry(files[i]); }
+    catch (err) { $('msg').textContent = 'Could not load the reader. Check your internet connection.'; console.error(err); }
     items.push({ date, photo }); save();
   }
   if ($('msg').textContent.startsWith('Reading')) $('msg').textContent = 'Done. Click a photo to see the remaining time.';
@@ -155,14 +213,13 @@ function show(i) {
   $('pimg').src = it.photo;
   if (it.date) {
     $('prem').className = 'big ' + level(it); $('prem').textContent = remaining(it.date).text;
-    $('pdate').textContent = 'Expiry date: ' + it.date; $('fix').style.display = 'none';
+    $('pdate').textContent = 'Expiry date: ' + it.date;
   } else {
     $('prem').className = 'big'; $('prem').textContent = 'Date not found';
-    $('pdate').textContent = 'Try a clearer photo, or set the date here:'; $('fix').style.display = 'block';
+    $('pdate').textContent = 'Please upload a closer, sharper photo of the date.';
   }
   $('pop').style.display = 'flex';
 }
-$('fixbtn').onclick = () => { if ($('fixdate').value) { items[current].date = $('fixdate').value; save(); show(current); } };
 $('close').onclick = () => $('pop').style.display = 'none';
 $('del').onclick = () => { items.splice(current, 1); $('pop').style.display = 'none'; save(); };
 $('pop').onclick = e => { if (e.target.id === 'pop') $('pop').style.display = 'none'; };
